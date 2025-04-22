@@ -36,7 +36,7 @@ const SignUpScreen = ({ navigation }) => {
       return;
     }
     // Lógica de registro aquí
-    navigation.replace('Home');
+    navigation.replace('MainTabs');
   };
 
   return (

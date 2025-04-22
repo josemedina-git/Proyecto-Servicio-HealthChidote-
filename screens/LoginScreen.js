@@ -25,7 +25,7 @@ const LoginScreen = ({ navigation }) => {
       return;
     }
     // Lógica de validación aquí
-    navigation.replace('Home');
+    navigation.replace('MainTabs');
   };
 
   return (
