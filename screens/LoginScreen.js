@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/FontAwesome';
+import { auth } from '../firebase/FirebaseConfig';  // Adjust the path according to your Firebase config file
+import { signInWithEmailAndPassword } from 'firebase/auth';
 
 const LoginScreen = ({ navigation }) => {
   const [username, setUsername] = useState('');
@@ -19,13 +21,26 @@ const LoginScreen = ({ navigation }) => {
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!username || !password) {
       setError('Please fill in all fields');
       return;
     }
-    // Lógica de validación aquí
-    navigation.replace('MainTabs');
+
+    try {
+      await signInWithEmailAndPassword(auth, username, password);
+      navigation.replace('MainTabs');
+    } catch (err) {
+      if (err.code === 'auth/user-not-found') {
+        setError('User not found');
+      } else if (err.code === 'auth/wrong-password') {
+        setError('Incorrect password');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Invalid email address');
+      } else {
+        setError('Login failed. Please try again.');
+      }
+    }
   };
 
   return (

@@ -13,6 +13,11 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/FontAwesome';
 
+// Importar Firebase
+import { auth, db } from '../firebase/FirebaseConfig';  // Ajusta la ruta según dónde tengas tu archivo firebaseConfig
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
+
 const SignUpScreen = ({ navigation }) => {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -22,7 +27,8 @@ const SignUpScreen = ({ navigation }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
+    setError('');
     if (!username || !email || !password || !confirmPassword) {
       setError('Please fill in all fields');
       return;
@@ -35,8 +41,26 @@ const SignUpScreen = ({ navigation }) => {
       setError('You must agree to the terms');
       return;
     }
-    // Lógica de registro aquí
-    navigation.replace('MainTabs');
+
+    try {
+      // 1. Crear usuario con correo y contraseña
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      // 2. Guardar el username en Firestore
+      await setDoc(doc(db, 'users', user.uid), {
+        email: user.email,
+        username: username,
+        createdAt: new Date()
+      });
+
+      // 3. Navegar a pantalla principal
+      navigation.replace('MainTabs');
+
+    } catch (firebaseError) {
+      console.log(firebaseError);
+      setError(firebaseError.message);
+    }
   };
 
   return (
@@ -63,7 +87,7 @@ const SignUpScreen = ({ navigation }) => {
             <Icon name="user" size={20} color="#666" style={styles.icon} />
             <TextInput
               style={styles.input}
-              placeholder="Username"
+              placeholder="Name"
               placeholderTextColor="#666"
               value={username}
               onChangeText={setUsername}
@@ -164,7 +188,7 @@ const SignUpScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  // Mantener los mismos estilos del LoginScreen y agregar:
+  // Aquí mantienes tus estilos sin cambio
   container: {
     flex: 1,
   },
@@ -274,7 +298,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#91eae4',
   },
-  // El resto de estilos igual que en LoginScreen
 });
 
 export default SignUpScreen;
