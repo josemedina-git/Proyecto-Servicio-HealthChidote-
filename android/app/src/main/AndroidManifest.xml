@@ -1,13 +1,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
     <uses-permission android:name="android.permission.health.READ_ELECTROCARDIOGRAM" />
     <uses-permission android:name="android.permission.health.READ_BLOOD_PRESSURE" />
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE"/>
     <uses-permission android:name="android.permission.health.READ_STEPS"/>
+    <uses-permission android:name="android.permission.NFC" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-feature android:name="android.hardware.nfc" android:required="true" />
 
     <application
       android:name=".MainApplication"
@@ -32,6 +35,9 @@
         <!-- Segun docs consultados, estos permisos solo son manejados desde android 13- -->
         <intent-filter>
             <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+        </intent-filter>
+        <intent-filter>
+            <action android:name="android.nfc.action.TECH_DISCOVERED" />
         </intent-filter>
         <!-- Segun docs consultados, estos permisos solo son manejados desde android 14- -->
         <intent-filter>
