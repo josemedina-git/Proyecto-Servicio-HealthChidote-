@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
-import { View, Text, Button, StyleSheet, Alert, ScrollView, SafeAreaView, TouchableOpacity, Modal, ActivityIndicator, TextInput } from "react-native";
+import { View, Text, Button, StyleSheet, Alert, ScrollView, SafeAreaView, TouchableOpacity, Modal, ActivityIndicator, TextInput, Dimensions } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { BarChart, LineChart, PieChart, RadarChart } from "react-native-gifted-charts";
+import { LineChart } from "react-native-gifted-charts";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from '../firebase/FirebaseConfig'; 
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
@@ -37,6 +37,45 @@ const HomeScreen = () => {
 
   // Referencia para controlar si los listeners se han configurado
   const listenersConfigured = useRef(false);
+
+  // Referencia para el intervalo de polling cada 10s
+  const pollingIntervalRef = useRef(null);
+
+  // Estado para mostrar la hora de la última actualización
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  // Historial de datos para gráficas (comienza vacío al iniciar sesión)
+  const [bpmHistory, setBpmHistory] = useState([]); // array de { value: number }
+  const [tempHistory, setTempHistory] = useState([]); // array de { value: number }
+  const MAX_HISTORY = 15; // máximo de puntos a mostrar (reducido a 15 para menor saturación)
+
+  // Helper: calcular max dinámico para la escala Y con padding
+  const computeChartMax = (historyArray, fallback = 100, padding = 0.2) => {
+    try {
+      if (!historyArray || historyArray.length === 0) return fallback;
+      const maxVal = Math.max(...historyArray.map(item => Number(item.value) || 0));
+      const padded = Math.ceil(maxVal * (1 + padding));
+      // Si el padded es igual a 0 (todos ceros), devolver fallback
+      return padded > 0 ? padded : fallback;
+    } catch (err) {
+      console.error('Error calculando max para la gráfica:', err);
+      return fallback;
+    }
+  };
+
+  // Dimensiones y spacing dinámico para ajustar la densidad de puntos en el eje X
+  const windowWidth = Dimensions.get('window').width;
+  const chartHorizontalPadding = 40; // espacio lateral para eje/etiquetas
+  const computeSpacing = (historyLength) => {
+    try {
+      const count = Math.max(1, historyLength);
+      const raw = Math.floor((windowWidth - chartHorizontalPadding) / count);
+      // limitar spacing entre 8 y 48
+      return Math.min(Math.max(raw, 8), 48);
+    } catch (err) {
+      return 16;
+    }
+  };
 
 
 
@@ -294,6 +333,9 @@ const HomeScreen = () => {
             temperature: "Permisos requeridos"
           });
           
+          // Registrar hora incluso si faltan permisos para dar feedback al usuario
+          setLastUpdated(new Date().toLocaleTimeString());
+
           return;
         }
         
@@ -314,6 +356,28 @@ const HomeScreen = () => {
           glucose: data.glucose || 0,
           temperature: data.temperature || 0
         });
+
+        // Registrar hora de última actualización
+        setLastUpdated(new Date().toLocaleTimeString());
+
+        // Actualizar historiales para las gráficas (proteger con try/catch para evitar crashes)
+        try {
+          const bpmValue = (typeof data.heartRate === 'number') ? data.heartRate : (parseInt(data.heartRate) || 0);
+          setBpmHistory(prev => {
+            const next = [...prev, { value: bpmValue }];
+            if (next.length > MAX_HISTORY) next.shift();
+            return next;
+          });
+
+          const tempValue = (typeof data.temperature === 'number') ? Number(data.temperature.toFixed(1)) : (parseFloat(data.temperature) || 0);
+          setTempHistory(prev => {
+            const next = [...prev, { value: tempValue }];
+            if (next.length > MAX_HISTORY) next.shift();
+            return next;
+          });
+        } catch (histErr) {
+          console.error('Error actualizando historiales para gráficas:', histErr);
+        }
         
       } catch (error) {
         console.error("Error obteniendo datos de salud:", error);
@@ -324,6 +388,7 @@ const HomeScreen = () => {
           glucose: "Error",
           temperature: "Error"
         });
+        setLastUpdated(null);
       }
     }
   };
@@ -331,16 +396,42 @@ const HomeScreen = () => {
   // Verificar sesión activa y obtener datos de salud
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      // Si no hay usuario, limpiar polling y enviar a Login
       if (!user) {
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
         navigation.replace("Login");
         return;
       }
-      
+
       // Obtener datos de salud después de verificar la autenticación
       fetchHealthData(user.uid);
+
+      // Reiniciar cualquier intervalo previo antes de crear uno nuevo
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+
+      // Iniciar polling cada 10 segundos
+      pollingIntervalRef.current = setInterval(() => {
+        try {
+          fetchHealthData(user.uid);
+        } catch (err) {
+          console.error('Error en polling de datos de salud:', err);
+        }
+      }, 10000);
     });
-    
-    return () => unsubscribe();
+
+    return () => {
+      unsubscribe();
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
   }, []);
   
   // Función para forzar la subida cada vez que se vuelve a abrir la pantalla
@@ -625,6 +716,8 @@ const HomeScreen = () => {
     );
   };
 
+  // NOTE: Las gráficas antiguas fueron removidas en favor de dos gráficas específicas
+
   return (
     <SafeAreaView style={styles.safeArea}>
       {/* Header con menú */}
@@ -657,6 +750,7 @@ const HomeScreen = () => {
           <Text style={styles.healthDataText}>💉 Presión Arterial: {healthData.pressure}</Text>
           <Text style={styles.healthDataText}>🌡️ Temperatura Corporal: {healthData.temperature}</Text>
           <Text style={styles.healthDataText}>📈 Nivel de Glucosa: {healthData.glucose}</Text>
+          <Text style={styles.updatedText}>Última actualización: {lastUpdated ?? '—'}</Text>
           
           {/* Botón para escanear sensor de glucosa */}
           <TouchableOpacity 
@@ -709,22 +803,59 @@ const HomeScreen = () => {
          color="#4CAF50"
        />
 
-       <View style={styles.graphsContainer}>
-         <Text style={styles.sectionTitle}>Monitoreo Semanal</Text>
-         <Graph1 />
-         
-         <Text style={styles.sectionTitle}>Comparativa Mensual</Text>
-         <Graph2 />
-         
-         <Text style={styles.sectionTitle}>Tendencias</Text>
-         <Graph3 />
-         
-         <Text style={styles.sectionTitle}>Distribución</Text>
-         <Graph4 />
-         
-         <Text style={styles.sectionTitle}>Análisis Semestral</Text>
-         <Graph5 />
-       </View>
+      <View style={styles.graphsContainer}>
+        <Text style={styles.sectionTitle}>Ritmo Cardíaco (BPM)</Text>
+        {bpmHistory && bpmHistory.length > 0 ? (
+          (() => {
+            const spacingForBpm = computeSpacing(bpmHistory.length);
+            return (
+              <LineChart
+                areaChart
+                curved
+                data={bpmHistory}
+                hideDataPoints={false}
+                spacing={spacingForBpm}
+                color1="#ff4d4d"
+                startFillColor1="#ff4d4d"
+                endFillColor1="#ff4d4d"
+                noOfSections={4}
+                maxValue={computeChartMax(bpmHistory, 120)}
+                yAxisLabelSuffix=" BPM"
+                xAxisTextStyle={{ color: "gray" }}
+                style={{ marginVertical: 10, height: 160 }}
+              />
+            );
+          })()
+        ) : (
+          <Text style={{ color: '#666' }}>No hay datos de BPM aún</Text>
+        )}
+
+        <Text style={styles.sectionTitle}>Temperatura Corporal (°C)</Text>
+        {tempHistory && tempHistory.length > 0 ? (
+          (() => {
+            const spacingForTemp = computeSpacing(tempHistory.length);
+            return (
+              <LineChart
+                areaChart
+                curved
+                data={tempHistory}
+                hideDataPoints={false}
+                spacing={spacingForTemp}
+                color1="#56acce"
+                startFillColor1="#56acce"
+                endFillColor1="#56acce"
+                noOfSections={4}
+                maxValue={computeChartMax(tempHistory, 40)}
+                yAxisLabelSuffix=" °C"
+                xAxisTextStyle={{ color: "gray" }}
+                style={{ marginVertical: 10, height: 160 }}
+              />
+            );
+          })()
+        ) : (
+          <Text style={{ color: '#666' }}>No hay datos de temperatura aún</Text>
+        )}
+      </View>
      </ScrollView>
    </SafeAreaView>
  );
@@ -807,6 +938,11 @@ const styles = StyleSheet.create({
    fontSize: 16,
    marginBottom: 8,
  },
+updatedText: {
+  fontSize: 12,
+  color: '#666',
+  marginBottom: 8,
+},
  graphsContainer: {
    marginTop: 20,
  },
